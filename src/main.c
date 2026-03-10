@@ -3,9 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define WINDOW_WIDTH  800
-#define WINDOW_HEIGHT 600
-#define WINDOW_TITLE  "My 3D Project"
+#define WINDOW_WIDTH  1280
+#define WINDOW_HEIGHT 720
+#define WINDOW_TITLE  "CRacer"
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
     glViewport(0, 0, width, height);
