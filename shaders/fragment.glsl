@@ -9,11 +9,12 @@ uniform vec3 lightPos;
 uniform vec3 lightColor;
 uniform vec3 objectColor;
 uniform vec3 viewPos;
+uniform vec3 emissive;      // additive glow — set to vec3(0) for normal objects
+uniform float ambientStr;   // per-object ambient override (default 0.15)
 
 void main() {
     // Ambient
-    float ambientStrength = 0.35f;
-    vec3 ambient = ambientStrength * lightColor;
+    vec3 ambient = ambientStr * lightColor;
 
     // Diffuse
     vec3 norm     = normalize(Normal);
@@ -22,12 +23,11 @@ void main() {
     vec3 diffuse  = diff * lightColor;
 
     // Specular
-    float specStrength = 0.3f;
     vec3 viewDir    = normalize(viewPos - FragPos);
     vec3 reflectDir = reflect(-lightDir, norm);
-    float spec      = pow(max(dot(viewDir, reflectDir), 0.0), 32);
-    vec3 specular   = specStrength * spec * lightColor;
+    float spec      = pow(max(dot(viewDir, reflectDir), 0.0), 64);
+    vec3 specular   = 0.6 * spec * lightColor;
 
-    vec3 result = (ambient + diffuse + specular) * objectColor;
-    FragColor = vec4(result, 1.0);
+    vec3 result = (ambient + diffuse + specular) * objectColor + emissive;
+    FragColor   = vec4(result, 1.0);
 }
