@@ -12,8 +12,14 @@ extern const float DANGLE[4]; // Y-rotation radians per direction (bike faces -Z
 
 typedef struct {
     float     x, z;
+    float     y;
+    float     vy;
     Direction dir;
     int       alive;
+    int       falling;
+    float     fall_start_x;
+    float     fall_start_z;
+    float     trail_end_dist; // total_dist frozen when falling starts or bike dies
     float     wp_x   [MAX_WAYPOINTS];
     float     wp_z   [MAX_WAYPOINTS];
     float     wp_dist[MAX_WAYPOINTS];
