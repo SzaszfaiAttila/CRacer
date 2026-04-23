@@ -88,7 +88,7 @@ static Mesh build_pillars(void) {
     for (int i=0;i<4;i++) {
         float cx=PP[i][0], cz=PP[i][1];
         off=add_frustum(v,off,cx,cz,PILLAR_BH,PILLAR_TH,ARENA_BASE,PILLAR_HEIGHT);
-        float cap_h=2.5f, cap_hw=6.0f;
+        float cap_h=2.5f, cap_hw=3.5f;
         off=add_box(v,off,
             cx-cap_hw, PILLAR_HEIGHT,        cz-cap_hw,
             cx+cap_hw, PILLAR_HEIGHT+cap_h,  cz+cap_hw);

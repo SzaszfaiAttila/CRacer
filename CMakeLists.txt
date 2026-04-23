@@ -1,5 +1,12 @@
+# Build & Run:
+# cmake .. && make -j4
+# ./CRacer
+
 cmake_minimum_required(VERSION 3.10)
 project(CRacer C)
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=x86-64 -mtune=generic -mno-avx -mno-avx2")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64 -mtune=generic -mno-avx -mno-avx2")
 
 set(CMAKE_C_STANDARD 11)
 set(OpenGL_GL_PREFERENCE GLVND)
@@ -22,6 +29,8 @@ set(SOURCES
     src/bike.c
     src/particles.c
     src/ai.c
+    src/ui.c
+    src/objloader.c
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
