@@ -17,7 +17,7 @@
 
 // ── Bike / Trail ──────────────────────────────────────────────────────────────
 #define BIKE_SPEED      20.0f
-#define TRAIL_HEIGHT     1.0f
+#define TRAIL_HEIGHT     1.1f
 #define TRAIL_LENGTH    125.0f
 #define TRAIL_PHYS_HW   0.05f
 #define COLLISION_R      0.8f

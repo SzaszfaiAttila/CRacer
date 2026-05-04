@@ -54,10 +54,12 @@ static Mesh build_moon(void) {
 }
 
 static Mesh build_arena(void) {
-    float v[216];
-    add_box(v, 0, -ARENA_HALF,ARENA_BASE,-ARENA_HALF,
-                  ARENA_HALF, ARENA_TOP,  ARENA_HALF);
-    return mesh_create(v, 216);
+    /* Single top-face quad at ARENA_TOP — removes all walls and bottom so
+       the water beneath is visible and there are no invisible side faces.  */
+    float v[36];
+    add_quad_y(v, 0, -ARENA_HALF, -ARENA_HALF,
+                    ARENA_HALF,   ARENA_HALF, ARENA_TOP);
+    return mesh_create(v, 36);
 }
 
 static Mesh build_arena_accents(void) {

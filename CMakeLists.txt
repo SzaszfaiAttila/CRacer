@@ -30,7 +30,8 @@ set(SOURCES
     src/particles.c
     src/ai.c
     src/ui.c
-    src/objloader.c
+    src/glbloader.c
+    src/skybox.c
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})

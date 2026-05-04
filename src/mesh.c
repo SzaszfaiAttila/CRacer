@@ -132,11 +132,12 @@ int add_frustum(float *b, int off,
                 float cx, float cz, float bh, float th,
                 float y0, float y1) {
     typedef struct { float v[4][3]; } SFace;
+    /* Vertex order reversed vs original so cross-product normals point outward */
     SFace sides[4] = {
-        {{{cx+bh,y0,cz-bh},{cx+bh,y0,cz+bh},{cx+th,y1,cz+th},{cx+th,y1,cz-th}}},
-        {{{cx-bh,y0,cz+bh},{cx-bh,y0,cz-bh},{cx-th,y1,cz-th},{cx-th,y1,cz+th}}},
-        {{{cx+bh,y0,cz+bh},{cx-bh,y0,cz+bh},{cx-th,y1,cz+th},{cx+th,y1,cz+th}}},
-        {{{cx-bh,y0,cz-bh},{cx+bh,y0,cz-bh},{cx+th,y1,cz-th},{cx-th,y1,cz-th}}},
+        {{{cx+th,y1,cz-th},{cx+th,y1,cz+th},{cx+bh,y0,cz+bh},{cx+bh,y0,cz-bh}}},
+        {{{cx-th,y1,cz+th},{cx-th,y1,cz-th},{cx-bh,y0,cz-bh},{cx-bh,y0,cz+bh}}},
+        {{{cx+th,y1,cz+th},{cx-th,y1,cz+th},{cx-bh,y0,cz+bh},{cx+bh,y0,cz+bh}}},
+        {{{cx-th,y1,cz-th},{cx+th,y1,cz-th},{cx+bh,y0,cz-bh},{cx-bh,y0,cz-bh}}},
     };
     int tris[2][3]={{0,1,2},{0,2,3}};
     for (int f=0;f<4;f++) {

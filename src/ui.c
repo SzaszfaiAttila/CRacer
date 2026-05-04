@@ -201,6 +201,7 @@ void ui_resize(UI *u, int sw, int sh) {
 
 void ui_begin(UI *u) {
     glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);   /* UI quads may face any direction */
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
@@ -215,6 +216,7 @@ void ui_end(UI *u) {
     glBindVertexArray(0);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
+    glEnable(GL_CULL_FACE);    /* restore scene state */
     glEnable(GL_DEPTH_TEST);
 }
 

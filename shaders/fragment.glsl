@@ -16,25 +16,31 @@ uniform vec3  lightColor;
 uniform vec3  viewPos;
 
 /* ── Specular (Blinn-Phong) ─────────────────────────────────────────────── */
-uniform float uSpecularStr;   /* 0.0 = matte, 0.85+ = plastic-glass         */
-uniform float uShininess;     /* higher = tighter highlight (32-256)         */
+uniform float uSpecularStr;
+uniform float uShininess;
 
 /* ── Fog ─────────────────────────────────────────────────────────────────── */
 uniform vec3  fogColor;
 uniform float fogDensity;
 
 /* ── Transparency ────────────────────────────────────────────────────────── */
-uniform float uAlphaTop;      /* alpha for upward-facing faces  (default 1)  */
-uniform float uAlphaSide;     /* alpha for side-facing faces    (default 1)  */
-uniform float uAlphaMult;     /* global alpha multiplier        (default 1)  */
+uniform float uAlphaTop;
+uniform float uAlphaSide;
+uniform float uAlphaMult;
 
-/* ── Normal flipping for Y-mirrored geometry ────────────────────────────── */
-uniform float uNormalYFlip;   /* +1.0 normal, -1.0 reflected  (default +1)  */
+/* ── Normal flipping ────────────────────────────────────────────────────── */
+uniform float uNormalYFlip;
 
 /* ── Two-sided lighting ──────────────────────────────────────────────────── */
-/* Set to 1.0 to use abs(diff) so both polygon faces receive diffuse light.
-   This corrects OBJ models whose normals are exported pointing inward.       */
-uniform float uTwoSided;      /* 0.0 = one-sided, 1.0 = two-sided (default 0) */
+uniform float uTwoSided;
+
+/* ── Hemisphere (GI-style) ambient ─────────────────────────────────────────
+   Simulates bounced skylight so surfaces in shadow are not pitch black.
+   Sky and ground colours are intentionally dark to fit the Tron night scene.
+   uHemiStr = 0 disables (default), 1 = full hemisphere wrap.               */
+uniform float uHemiStr;
+uniform vec3  uSkyColor;      /* colour of light from above */
+uniform vec3  uGroundColor;   /* colour of light from below */
 
 void main() {
     vec3  raw    = vNormal;
@@ -44,18 +50,21 @@ void main() {
     vec3  lightDir = normalize(lightPos - vFragPos);
     vec3  viewDir  = normalize(viewPos  - vFragPos);
 
-    /* Ambient */
-    vec3 ambient  = ambientStr * lightColor * objectColor;
+    /* ── Hemisphere ambient (GI wrap) ──────────────────────────────────── */
+    /* Blend from groundColor (norm.y=-1) to skyColor (norm.y=+1) */
+    float hemi      = norm.y * 0.5 + 0.5;
+    vec3  hemiLight = mix(uGroundColor, uSkyColor, hemi) * uHemiStr;
 
-    /* Diffuse — two-sided mode uses abs() so inverted normals still light up */
+    /* ── Moon / directional ambient ──────────────────────────────────────── */
+    vec3 ambient  = (ambientStr * lightColor + hemiLight) * objectColor;
+
+    /* ── Diffuse ─────────────────────────────────────────────────────────── */
     float rawDiff = dot(norm, lightDir);
     float diff    = (uTwoSided > 0.5) ? abs(rawDiff) : max(rawDiff, 0.0);
     vec3  diffuse = diff * lightColor * objectColor;
 
-    /* Specular — Blinn-Phong half-vector
-       For two-sided: negate norm when polygon faces away so highlight is
-       on the correct side.                                                    */
-    vec3 effNorm  = (uTwoSided > 0.5 && rawDiff < 0.0) ? -norm : norm;
+    /* ── Specular ────────────────────────────────────────────────────────── */
+    vec3  effNorm = (uTwoSided > 0.5 && rawDiff < 0.0) ? -norm : norm;
     vec3  halfVec = normalize(lightDir + viewDir);
     float spec    = (uSpecularStr > 0.001)
                   ? pow(max(dot(effNorm, halfVec), 0.0), uShininess)
@@ -64,12 +73,12 @@ void main() {
 
     vec3 result = ambient + diffuse + specular + emissive;
 
-    /* Exponential-squared fog */
+    /* ── Fog ─────────────────────────────────────────────────────────────── */
     float d         = length(viewPos - vFragPos);
-    float fogFactor = clamp(1.0 - exp(-(fogDensity * d) * (fogDensity * d)), 0.0, 1.0);
+    float fogFactor = clamp(1.0 - exp(-(fogDensity*d)*(fogDensity*d)), 0.0, 1.0);
     result          = mix(result, fogColor, fogFactor);
 
-    /* Normal-driven alpha × global multiplier */
+    /* ── Alpha ───────────────────────────────────────────────────────────── */
     float yFactor = clamp(abs(norm.y), 0.0, 1.0);
     float alpha   = mix(uAlphaSide, uAlphaTop, yFactor) * uAlphaMult;
 
