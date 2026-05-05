@@ -265,7 +265,10 @@ static void bike_model_mat(mat4 out, float wx, float wy, float wz,
     float fwd = (use_obj) ? BIKE_MODEL_FORWARD : 0.0f;
     float fx = -sinf(dir_angle) * fwd;
     float fz = -cosf(dir_angle) * fwd;
-    float oy = (use_obj) ? BIKE_MODEL_HEIGHT_OFFSET : 0.0f;
+    /* reflect_y is +1 for normal bikes, -1 for reflections.
+       Applying it to the height offset mirrors the visual model correctly
+       across ARENA_TOP: bike at 3.5+0.7=4.2 → reflection at 3.5-0.7=2.8 */
+    float oy = (use_obj) ? BIKE_MODEL_HEIGHT_OFFSET * reflect_y : 0.0f;
     vec3 pos = {wx+fx, wy+oy, wz+fz}; glm_translate(out, pos);
     vec3 yaxis = {0,1,0};
     glm_rotate(out, dir_angle, yaxis);
@@ -676,9 +679,19 @@ static void render_3d(int W, int H){
     mesh_draw(&g_scene.moon);
     glm_mat4_identity(model); shader_set_mat4(sh,"model",(float*)model);
 
-    /* ── Opaque scene ────────────────────────────────────────────────────── */
+    /* ── Arena floor — semi-transparent so reflections show through ──────── */
+    /* Arena is drawn first of the scene geometry so its depth blocks the
+       reflected models that were drawn earlier at y < ARENA_TOP.
+       uAlphaTop=0.82 lets ~18% of the reflection colour show through.       */
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    shader_set_float(sh,"uAlphaTop",  0.82f);
+    shader_set_float(sh,"uAlphaSide", 1.0f);
     sh_specular(0.88f,220.0f);
     draw_obj(0.06f,0.07f,0.11f);             mesh_draw(&g_scene.arena);
+    glDisable(GL_BLEND);
+    sh_defaults();
+
+    /* ── Pillars and accents (fully opaque) ─────────────────────────────── */
     sh_specular(0.45f,64.0f);
     draw_emissive(0.22f,0.55f,0.55f,0.0f,0.22f,0.28f); mesh_draw(&g_scene.arena_acc);
     sh_specular(0.22f,36.0f);
