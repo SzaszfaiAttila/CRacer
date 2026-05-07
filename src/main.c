@@ -129,6 +129,46 @@ static Scene  g_scene;
 static Mesh   g_hitbox_mesh;
 static Skybox g_skybox;
 
+/* ── Reflection FBO ─────────────────────────────────────────────────────── */
+/* Three FBOs: one to capture raw reflection, two to ping-pong blur.
+   Sized to match the window; rebuilt on resize.                             */
+typedef struct {
+    GLuint fbo, tex;
+    int    w, h;
+} ReflFBO;
+static ReflFBO g_refl_raw;   /* raw mirror render              */
+static ReflFBO g_refl_pingA; /* blur ping                      */
+static ReflFBO g_refl_pingB; /* blur pong                      */
+static GLuint  g_blur_sh;    /* separable Gaussian blur shader */
+static GLuint  g_quad_vao, g_quad_vbo; /* full-screen quad    */
+
+/* Build or rebuild a single ReflFBO at given dimensions */
+static void reflfbo_build(ReflFBO *f, int w, int h) {
+    if (f->fbo) { glDeleteFramebuffers(1,&f->fbo); glDeleteTextures(1,&f->tex); }
+    f->w=w; f->h=h;
+    glGenFramebuffers(1,&f->fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER,f->fbo);
+    glGenTextures(1,&f->tex);
+    glBindTexture(GL_TEXTURE_2D,f->tex);
+    /* RGBA8 — no depth attachment needed, reflections are colour-only */
+    glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,w,h,0,GL_RGBA,GL_UNSIGNED_BYTE,NULL);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,f->tex,0);
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)
+        fprintf(stderr,"ReflFBO incomplete!");
+    glBindFramebuffer(GL_FRAMEBUFFER,0);
+    glBindTexture(GL_TEXTURE_2D,0);
+}
+
+static void reflfbo_free(ReflFBO *f) {
+    if (f->fbo) glDeleteFramebuffers(1,&f->fbo);
+    if (f->tex) glDeleteTextures(1,&f->tex);
+    f->fbo=f->tex=0;
+}
+
 /* ── OBJ bike models ─────────────────────────────────────────────────────── */
 static ObjModel g_bike_player;
 static ObjModel g_bike_ai;
@@ -176,9 +216,9 @@ static void sh_defaults(void){
     shader_set_float(sh,"uShininess",  32.0f);
     shader_set_float(sh,"uTwoSided",   0.0f);
     /* Hemisphere GI — dark teal sky, near-black ground */
-    shader_set_float(sh,"uHemiStr",    0.55f);
-    shader_set_vec3 (sh,"uSkyColor",   0.04f, 0.07f, 0.14f);
-    shader_set_vec3 (sh,"uGroundColor",0.01f, 0.01f, 0.02f);
+    shader_set_float(sh,"uHemiStr",    1.40f);
+    shader_set_vec3 (sh,"uSkyColor",   0.14f, 0.20f, 0.36f);
+    shader_set_vec3 (sh,"uGroundColor",0.04f, 0.05f, 0.09f);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -190,6 +230,12 @@ static void framebuffer_size_cb(GLFWwindow *w, int W, int H) {
     SZ_HUGE  =SCR_H*0.055f; SZ_LARGE =SCR_H*0.040f;
     SZ_MEDIUM=SCR_H*0.028f; SZ_SMALL =SCR_H*0.021f;
     ui_resize(&ui,W,H);
+    /* Rebuild reflection FBOs to match new window size */
+    if (g_refl_raw.fbo) {
+        reflfbo_build(&g_refl_raw,   W,H);
+        reflfbo_build(&g_refl_pingA, W,H);
+        reflfbo_build(&g_refl_pingB, W,H);
+    }
 }
 static void scroll_cb(GLFWwindow *w, double xoff, double yoff) {
     (void)w;(void)xoff;
@@ -532,6 +578,11 @@ static void render_big_text_overlay(const char *msg, float r, float g, float b){
    3-D RENDER
    ══════════════════════════════════════════════════════════════════════════ */
 static void render_3d(int W, int H){
+    /* Guarantee clean depth state before clear — skybox and FBO passes may
+       have left depthMask=false or depthFunc=LEQUAL from the previous frame */
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_DEPTH_TEST);
     glClearColor(0.01f,0.01f,0.04f,1.0f);
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
     shader_use(sh);
@@ -553,7 +604,7 @@ static void render_3d(int W, int H){
     shader_set_mat4(sh,"projection",(float*)proj);
     shader_set_mat4(sh,"model",     (float*)model);
     shader_set_vec3(sh,"lightPos",  MOON_X,MOON_Y+200.0f,MOON_Z);
-    shader_set_vec3(sh,"lightColor",0.80f*g_brightness,0.90f*g_brightness,1.15f*g_brightness);
+    shader_set_vec3(sh,"lightColor",1.10f*g_brightness,1.20f*g_brightness,1.45f*g_brightness);
     shader_set_vec3(sh,"viewPos",   camera.position[0],camera.position[1],camera.position[2]);
     shader_set_vec3(sh,"fogColor",  FOG_R,FOG_G,FOG_B);
     shader_set_float(sh,"fogDensity",FOG_DENSITY);
@@ -567,7 +618,7 @@ static void render_3d(int W, int H){
     shader_set_mat4(sh,"projection",(float*)proj);
     glm_mat4_identity(model); shader_set_mat4(sh,"model",(float*)model);
     shader_set_vec3(sh,"lightPos",  MOON_X,MOON_Y+200.0f,MOON_Z);
-    shader_set_vec3(sh,"lightColor",0.80f*g_brightness,0.90f*g_brightness,1.15f*g_brightness);
+    shader_set_vec3(sh,"lightColor",1.10f*g_brightness,1.20f*g_brightness,1.45f*g_brightness);
     shader_set_vec3(sh,"viewPos",   camera.position[0],camera.position[1],camera.position[2]);
     shader_set_vec3(sh,"fogColor",  FOG_R,FOG_G,FOG_B);
     shader_set_float(sh,"fogDensity",FOG_DENSITY);
@@ -580,45 +631,51 @@ static void render_3d(int W, int H){
     int ai_limit=in_game?g_n_ai:MAX_AI;
 
 
-    /* ── Reflections: blurred Y-mirror, drawn BEFORE the arena so the
-       arena quad naturally occludes them and masks water-shine ────────── */
-#define BLUR_SAMPLES 7
-#define BLUR_R       0.55f
-    static const float JITTER_X[BLUR_SAMPLES]={0.0f,BLUR_R,0.0f,-BLUR_R,0.0f,BLUR_R*0.71f,-BLUR_R*0.71f};
-    static const float JITTER_Z[BLUR_SAMPLES]={0.0f,0.0f,BLUR_R,0.0f,-BLUR_R,BLUR_R*0.71f,BLUR_R*0.71f};
+    /* ── Reflection pass: render mirrored scene into FBO, then blur ────────
+       Pass 1: render reflected bikes + trails into g_refl_raw FBO
+       Pass 2: horizontal Gaussian blur  → g_refl_pingA
+       Pass 3: vertical   Gaussian blur  → g_refl_pingB
+       Pass 4: composite g_refl_pingB onto screen with additive blend        */
+    {
+        /* ── Pass 1: render reflections to texture ─────────────────────── */
+        int vp_w=(int)SCR_W, vp_h=(int)SCR_H;
+        glBindFramebuffer(GL_FRAMEBUFFER, g_refl_raw.fbo);
+        glViewport(0,0,g_refl_raw.w,g_refl_raw.h);
+        glClearColor(0,0,0,0);
+        glClear(GL_COLOR_BUFFER_BIT);  /* colour only — no depth buffer in FBO */
+        /* Disable depth test inside FBO: we want ALL reflection geometry    */
+        glDisable(GL_DEPTH_TEST);
 
-    glm_mat4_identity(model); shader_set_mat4(sh,"model",(float*)model);
-    shader_set_float(sh,"uNormalYFlip",-1.0f);
-    shader_set_float(sh,"uAlphaTop",   1.0f);
-    shader_set_float(sh,"uAlphaSide",  1.0f);
-    shader_set_float(sh,"uTwoSided",   1.0f);
+        /* Restore scene shader and all matrices */
+        shader_use(sh);
+        shader_set_mat4(sh,"view",      (float*)view);
+        shader_set_mat4(sh,"projection",(float*)proj);
+        glm_mat4_identity(model); shader_set_mat4(sh,"model",(float*)model);
+        shader_set_vec3(sh,"lightPos",  MOON_X,MOON_Y+200.0f,MOON_Z);
+        shader_set_vec3(sh,"lightColor",1.10f*g_brightness,1.20f*g_brightness,1.45f*g_brightness);
+        shader_set_vec3(sh,"viewPos",   camera.position[0],camera.position[1],camera.position[2]);
+        shader_set_vec3(sh,"fogColor",  FOG_R,FOG_G,FOG_B);
+        shader_set_float(sh,"fogDensity",FOG_DENSITY);
+        sh_defaults();
 
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE);
-    /* GL_LEQUAL: reflections only visible where no closer opaque fragment
-       has been written yet (i.e. below/through the not-yet-drawn arena).  */
-    glDepthMask(GL_FALSE); glDepthFunc(GL_LEQUAL);
+        shader_set_float(sh,"uNormalYFlip",-1.0f);
+        shader_set_float(sh,"uAlphaTop",    1.0f);
+        shader_set_float(sh,"uAlphaSide",   1.0f);
+        shader_set_float(sh,"uAlphaMult",   1.0f);
+        shader_set_float(sh,"uTwoSided",    1.0f);
 
-    float base_refl_alpha=0.52f;
-    float samp_centre=base_refl_alpha*2.0f/(float)(BLUR_SAMPLES+1);
-    float samp_outer =base_refl_alpha*1.0f/(float)(BLUR_SAMPLES+1);
+        glEnable(GL_BLEND); glBlendFunc(GL_ONE, GL_ONE);  /* accumulate additive */
+        glDepthMask(GL_FALSE);
 
-    for(int samp=0;samp<BLUR_SAMPLES;samp++){
-        float jx=JITTER_X[samp], jz=JITTER_Z[samp];
-        float sa=(samp==0)?samp_centre:samp_outer;
-        shader_set_float(sh,"uAlphaMult",sa);
-
-        /* Reflected player — use glb_draw_model so ALL primitives render */
+        /* Reflected player bike */
         if(bike.alive||(bike.falling&&bike.y>ARENA_BASE+4.0f)){
             float ry=2.0f*ARENA_TOP-bike.y;
-            mat4 rm; bike_model_mat(rm,bike.x+jx,ry,bike.z+jz,DANGLE[bike.dir],has_player_refl(),-1.0f);
+            mat4 rm; bike_model_mat(rm,bike.x,ry,bike.z,DANGLE[bike.dir],has_player_refl(),-1.0f);
             shader_set_mat4(sh,"model",(float*)rm);
             if(has_player_refl()){
-                /* uNormalYFlip and uAlphaMult already set; glb_draw_model
-                   only touches objectColor/emissive/ambient/specular       */
-                glb_draw_model(&g_bike_player_refl,sh,g_brightness*0.6f);
-                /* Restore reflection-pass uniforms glb_draw_model may reset */
+                glb_draw_model(&g_bike_player_refl,sh,g_brightness*0.27f);
                 shader_set_float(sh,"uNormalYFlip",-1.0f);
-                shader_set_float(sh,"uAlphaMult",sa);
+                shader_set_float(sh,"uAlphaMult",1.0f);
                 shader_set_float(sh,"uTwoSided",1.0f);
             } else {
                 draw_emissive(0.6f,1.0f,1.0f,0.15f,0.80f,0.90f);
@@ -626,17 +683,17 @@ static void render_3d(int W, int H){
             }
         }
 
-        /* Reflected AIs */
+        /* Reflected AI bikes */
         for(int i=0;i<ai_limit;i++){
             Bike *ab=&ai_bikes[i].bike;
             if(ab->alive||(ab->falling&&ab->y>ARENA_BASE+4.0f)){
                 float ry=2.0f*ARENA_TOP-ab->y;
-                mat4 rm; bike_model_mat(rm,ab->x+jx,ry,ab->z+jz,DANGLE[ab->dir],has_ai_refl(),-1.0f);
+                mat4 rm; bike_model_mat(rm,ab->x,ry,ab->z,DANGLE[ab->dir],has_ai_refl(),-1.0f);
                 shader_set_mat4(sh,"model",(float*)rm);
                 if(has_ai_refl()){
-                    glb_draw_model(&g_bike_ai_refl,sh,g_brightness*0.6f);
+                    glb_draw_model(&g_bike_ai_refl,sh,g_brightness*0.27f);
                     shader_set_float(sh,"uNormalYFlip",-1.0f);
-                    shader_set_float(sh,"uAlphaMult",sa);
+                    shader_set_float(sh,"uAlphaMult",1.0f);
                     shader_set_float(sh,"uTwoSided",1.0f);
                 } else {
                     draw_emissive(1.0f,0.5f,0.05f,0.60f,0.22f,0.0f);
@@ -648,28 +705,76 @@ static void render_3d(int W, int H){
         /* Reflected trails */
         {
             mat4 tm; glm_mat4_identity(tm);
-            vec3 tt={jx,2.0f*ARENA_TOP,jz}; glm_translate(tm,tt);
+            vec3 tt={0.0f,2.0f*ARENA_TOP,0.0f}; glm_translate(tm,tt);
             vec3 ts={1.0f,-1.0f,1.0f}; glm_scale(tm,ts);
             shader_set_mat4(sh,"model",(float*)tm);
-            float trail_samp=sa*0.60f;
-            shader_set_float(sh,"uAlphaMult",trail_samp);
             shader_set_float(sh,"ambientStr",0.0f);
+            shader_set_float(sh,"uAlphaMult",0.65f);
             shader_set_vec3(sh,"objectColor",0,0,0);
-            shader_set_vec3(sh,"emissive",0.28f*g_brightness,0.28f*g_brightness,0.28f*g_brightness);
+            shader_set_vec3(sh,"emissive",0.15f*g_brightness,0.15f*g_brightness,0.15f*g_brightness);
             dynmesh_draw(&player_trail);
             for(int i=0;i<ai_limit;i++){
-                shader_set_vec3(sh,"emissive",0.30f*g_brightness,0.24f*g_brightness,0.0f);
+                shader_set_vec3(sh,"emissive",0.16f*g_brightness,0.13f*g_brightness,0.0f);
                 dynmesh_draw(&ai_trail_meshes[i]);
             }
-            shader_set_float(sh,"uAlphaMult",sa);
         }
+
+        glDepthMask(GL_TRUE); glDisable(GL_BLEND);
+        glEnable(GL_DEPTH_TEST);  /* re-enable before blur passes */
+        shader_set_float(sh,"uNormalYFlip",1.0f);
+        shader_set_float(sh,"uAlphaMult",  1.0f);
+        shader_set_float(sh,"uTwoSided",   0.0f);
+
+        /* ── Pass 2: horizontal blur → g_refl_pingA ────────────────────── */
+        float blur_radius = 2.0f;   /* pixels per tap — tune for softer/sharper */
+        glDisable(GL_DEPTH_TEST);   /* fullscreen quad draws don't need depth */
+        glBindFramebuffer(GL_FRAMEBUFFER, g_refl_pingA.fbo);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glUseProgram(g_blur_sh);
+        glUniform2f(glGetUniformLocation(g_blur_sh,"uDir"),
+                    blur_radius / (float)g_refl_raw.w, 0.0f);
+        glUniform1f(glGetUniformLocation(g_blur_sh,"uBlurRadius"), 1.0f);
+        glUniform1f(glGetUniformLocation(g_blur_sh,"uAlpha"),      1.0f);
+        glUniform1i(glGetUniformLocation(g_blur_sh,"uTex"), 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, g_refl_raw.tex);
+        glBindVertexArray(g_quad_vao);
+        glDrawArrays(GL_TRIANGLES,0,6);
+
+        /* ── Pass 3: vertical blur → g_refl_pingB ──────────────────────── */
+        glBindFramebuffer(GL_FRAMEBUFFER, g_refl_pingB.fbo);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glUniform1f(glGetUniformLocation(g_blur_sh,"uAlpha"), 1.0f);
+        glUniform2f(glGetUniformLocation(g_blur_sh,"uDir"),
+                    0.0f, blur_radius / (float)g_refl_pingA.h);
+        glBindTexture(GL_TEXTURE_2D, g_refl_pingA.tex);
+        glDrawArrays(GL_TRIANGLES,0,6);
+        glBindVertexArray(0);
+        glBindTexture(GL_TEXTURE_2D,0);
+
+        /* ── Return to main framebuffer, restore viewport ────────────────── */
+        glBindFramebuffer(GL_FRAMEBUFFER,0);
+        glViewport(0,0,vp_w,vp_h);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glDepthFunc(GL_LESS);
+        glDisable(GL_BLEND);
+        glBindVertexArray(0);
+        glBindTexture(GL_TEXTURE_2D,0);
     }
 
-    glDepthFunc(GL_LESS); glDepthMask(GL_TRUE); glDisable(GL_BLEND);
-    shader_set_float(sh,"uNormalYFlip",1.0f);
-    shader_set_float(sh,"uAlphaMult",  1.0f);
-    shader_set_float(sh,"uTwoSided",   0.0f);
+    /* Re-bind scene shader and restore ALL uniforms after FBO/blur passes
+       switched the active program to g_blur_sh.                             */
+    shader_use(sh);
+    shader_set_mat4(sh,"view",       (float*)view);
+    shader_set_mat4(sh,"projection", (float*)proj);
     glm_mat4_identity(model); shader_set_mat4(sh,"model",(float*)model);
+    shader_set_vec3(sh,"lightPos",   MOON_X,MOON_Y+200.0f,MOON_Z);
+    shader_set_vec3(sh,"lightColor", 1.10f*g_brightness,1.20f*g_brightness,1.45f*g_brightness);
+    shader_set_vec3(sh,"viewPos",    camera.position[0],camera.position[1],camera.position[2]);
+    shader_set_vec3(sh,"fogColor",   FOG_R,FOG_G,FOG_B);
+    shader_set_float(sh,"fogDensity",FOG_DENSITY);
+    sh_defaults();
 
     /* ── Moon ────────────────────────────────────────────────────────────── */
     glm_mat4_identity(model);
@@ -688,7 +793,33 @@ static void render_3d(int W, int H){
     shader_set_float(sh,"uAlphaSide", 1.0f);
     sh_specular(0.88f,220.0f);
     draw_obj(0.06f,0.07f,0.11f);             mesh_draw(&g_scene.arena);
+    /* ── Pass 4: composite blurred reflection onto screen ──────────────── */
+    /* Blit g_refl_pingB additively over the arena using the ui shader path.
+       No depth test: we want the reflection colour to blend over whatever
+       the arena drew. The arena's alpha (0.82) already attenuates it.       */
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE); /* attenuated additive */
+    glUseProgram(g_blur_sh);
+    /* Single-tap centre-only sample = identity blit */
+    glUniform2f(glGetUniformLocation(g_blur_sh,"uDir"),        0.001f, 0.0f);
+    glUniform1f(glGetUniformLocation(g_blur_sh,"uBlurRadius"), 0.0f);
+    glUniform1i(glGetUniformLocation(g_blur_sh,"uTex"),        0);
+    /* uAlpha: controls how strongly the blurred reflection composites.
+       0.35 = visible but clearly a reflection, not a full double-image.     */
+    glUniform1f(glGetUniformLocation(g_blur_sh,"uAlpha"), 0.1f);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_refl_pingB.tex);
+    glBindVertexArray(g_quad_vao);
+    glDrawArrays(GL_TRIANGLES,0,6);
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D,0);
     glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+    /* Restore scene shader for remaining passes */
+    shader_use(sh);
+    shader_set_mat4(sh,"view",      (float*)view);
+    shader_set_mat4(sh,"projection",(float*)proj);
+    glm_mat4_identity(model); shader_set_mat4(sh,"model",(float*)model);
     sh_defaults();
 
     /* ── Pillars and accents (fully opaque) ─────────────────────────────── */
@@ -864,6 +995,29 @@ int main(void){
     psh =shader_create("../shaders/particle_vert.glsl", "../shaders/particle_frag.glsl");
     wsh =shader_create("../shaders/water_vert.glsl",    "../shaders/water_frag.glsl");
     ui_init(&ui,(int)SCR_W,(int)SCR_H);
+
+    /* ── Reflection FBOs + blur shader + full-screen quad ─────────────────── */
+    g_blur_sh = shader_create("../shaders/blur_vert.glsl","../shaders/blur_frag.glsl");
+    reflfbo_build(&g_refl_raw,   (int)SCR_W,(int)SCR_H);
+    reflfbo_build(&g_refl_pingA, (int)SCR_W,(int)SCR_H);
+    reflfbo_build(&g_refl_pingB, (int)SCR_W,(int)SCR_H);
+    /* Full-screen quad: two triangles covering NDC [-1,1] */
+    {
+        float quad[] = {
+            -1.0f, 1.0f, 0.0f,1.0f,   -1.0f,-1.0f, 0.0f,0.0f,
+             1.0f,-1.0f, 1.0f,0.0f,   -1.0f, 1.0f, 0.0f,1.0f,
+             1.0f,-1.0f, 1.0f,0.0f,    1.0f, 1.0f, 1.0f,1.0f,
+        };
+        glGenVertexArrays(1,&g_quad_vao); glGenBuffers(1,&g_quad_vbo);
+        glBindVertexArray(g_quad_vao);
+        glBindBuffer(GL_ARRAY_BUFFER,g_quad_vbo);
+        glBufferData(GL_ARRAY_BUFFER,sizeof(quad),quad,GL_STATIC_DRAW);
+        glVertexAttribPointer(0,2,GL_FLOAT,GL_FALSE,4*sizeof(float),(void*)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,4*sizeof(float),(void*)(2*sizeof(float)));
+        glEnableVertexAttribArray(1);
+        glBindVertexArray(0);
+    }
 
     camera_init(&camera,0,70,130);
     particles_init();
@@ -1223,6 +1377,12 @@ int main(void){
 
     /* ── Cleanup ──────────────────────────────────────────────────────────── */
     skybox_free(&g_skybox);
+    reflfbo_free(&g_refl_raw);
+    reflfbo_free(&g_refl_pingA);
+    reflfbo_free(&g_refl_pingB);
+    if(g_blur_sh)  glDeleteProgram(g_blur_sh);
+    if(g_quad_vao) glDeleteVertexArrays(1,&g_quad_vao);
+    if(g_quad_vbo) glDeleteBuffers(1,&g_quad_vbo);
     mesh_free(&g_hitbox_mesh);
     obj_free(&g_bike_player);
     obj_free(&g_bike_ai);

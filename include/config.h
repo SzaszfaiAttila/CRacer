@@ -52,7 +52,7 @@
 // Set SHOW_HITBOX to 1 to render a red wireframe box around every bike.
 // The box is drawn over all geometry (depth-always) so it is always visible.
 // Tweak the values below to align the box with the visible OBJ model.
-#define SHOW_HITBOX         0       /* 0 = off, 1 = on                        */
+#define SHOW_HITBOX         1       /* 0 = off, 1 = on                        */
 
 // Half-extents of the box (full box = 2x each value in that axis).
 // Defaults mirror the actual collision radius used by bike_trail_point_hits.
