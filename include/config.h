@@ -17,7 +17,7 @@
 
 // ── Bike / Trail ──────────────────────────────────────────────────────────────
 #define BIKE_SPEED      20.0f
-#define TRAIL_HEIGHT     1.1f
+#define TRAIL_HEIGHT     1.3f
 #define TRAIL_LENGTH    125.0f
 #define TRAIL_PHYS_HW   0.05f
 #define COLLISION_R      0.8f
@@ -52,18 +52,18 @@
 // Set SHOW_HITBOX to 1 to render a red wireframe box around every bike.
 // The box is drawn over all geometry (depth-always) so it is always visible.
 // Tweak the values below to align the box with the visible OBJ model.
-#define SHOW_HITBOX         1       /* 0 = off, 1 = on                        */
+#define SHOW_HITBOX         0       /* 0 = off, 1 = on                        */
 
 // Half-extents of the box (full box = 2x each value in that axis).
 // Defaults mirror the actual collision radius used by bike_trail_point_hits.
-#define HITBOX_HALF_W       0.35f   /* left / right                           */
-#define HITBOX_HALF_L       0.5f   /* front / back  (bikes are longer)       */
+#define HITBOX_HALF_W       0.2f   /* left / right                           */
+#define HITBOX_HALF_L       0.2f   /* front / back  (bikes are longer)       */
 #define HITBOX_HALF_H       0.5f   /* vertical, measured upward from pivot   */
 
 // Local-space position offset (applied before direction rotation).
 // Positive X = bike's right, positive Y = up, positive Z = backward (into trail).
 #define HITBOX_OFFSET_X     0.0f
 #define HITBOX_OFFSET_Y     0.0f    /* raise/lower to match BIKE_MODEL_HEIGHT_OFFSET */
-#define HITBOX_OFFSET_Z     -0.5f   /* forward(negative) / backward(positive) shift  */
+#define HITBOX_OFFSET_Z     -0.2f   /* forward(negative) / backward(positive) shift  */
 
 #endif

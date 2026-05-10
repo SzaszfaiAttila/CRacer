@@ -63,10 +63,10 @@ static const float FOG_R = 0.01f, FOG_G = 0.01f, FOG_B = 0.04f;
 static const float FOG_DENSITY = 0.0022f;
 
 /* ── Bike model transform constants — tune here ────────────────────────────── */
-#define BIKE_MODEL_SCALE           0.025f
+#define BIKE_MODEL_SCALE           0.023f
 #define BIKE_MODEL_ROT_Y           ((float)M_PI * 0.5f)   /* 90 degrees right */
-#define BIKE_MODEL_FORWARD         1.5f   /* forward offset along travel dir   */
-#define BIKE_MODEL_HEIGHT_OFFSET   0.7f   /* push up so wheels clear the floor */
+#define BIKE_MODEL_FORWARD         0.45f   /* forward offset along travel dir   */
+#define BIKE_MODEL_HEIGHT_OFFSET   0.6f   /* push up so wheels clear the floor */
 
 /* ══════════════════════════════════════════════════════════════════════════════
    GLOBALS
